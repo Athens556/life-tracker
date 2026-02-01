@@ -1,16 +1,56 @@
-# React + Vite
+# Vibe Tracker 🌊
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+[![Firebase](https://img.shields.io/badge/Firebase-Deployed-orange)](https://life-tracker-bc437.web.app/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Currently, two official plugins are available:
+A premium, dark-mode Habit and Mood tracking application. Focus on your vibe with a glassmorphic UI and intuitive tracking tools.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🚀 Live Demo
+**Production URL**: [https://life-tracker-bc437.web.app/](https://life-tracker-bc437.web.app/)
 
-## React Compiler
+## ✨ Features
+- **Habit Tracking**: Create, group (Folders), and track habits.
+- **Visuals**: Monthly calendar view for each habit + statistics.
+- **Mood Logging**: Log your daily vibe with emojis.
+- **Security**: Google Auth + strict user data isolation (Firestore Rules).
+- **Environment Isolation**: Local development uses Emulators to prevent polluting production data.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🛠️ Development Setup
 
-## Expanding the ESLint configuration
+1.  **Clone the repository**
+    ```bash
+    git clone https://github.com/Athens556/life-tracker.git
+    cd life-tracker
+    ```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+2.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
+
+3.  **Environment Variables**
+    Create a `.env` file in the root directory (copy from example):
+    ```bash
+    cp .env.example .env
+    ```
+    *Fill in your Firebase API keys in `.env`.*
+
+4.  **Run Locally (with Emulators)**
+    This starts both the Firebase Emulators (fake DB/Auth) and the Vite frontend.
+    ```bash
+    npm run emulators
+    # In another terminal:
+    npm run dev
+    ```
+    Open [http://localhost:5173](http://localhost:5173).
+
+## 🔒 Security
+- **Credentials**: Stored in `.env` (not committed).
+- **Database**: Firestore Security Rules ensure users can only access their own data.
+
+## 📦 Deployment
+Deployment is manual to ensure stability.
+```bash
+npm run build
+firebase deploy
+```
