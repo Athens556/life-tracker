@@ -1,0 +1,15 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Allow access ONLY if the document belongs to the authenticated user
+    match /{document=**} {
+      // Check for reading/updating/deleting existing documents
+      allow read, update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      
+      // Check for creating new documents
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}
