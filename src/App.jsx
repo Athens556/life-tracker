@@ -5,6 +5,7 @@ import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from
 import Habits from './components/Habits';
 import VibeLogger from './components/VibeLogger';
 import Analysis from './components/Analysis';
+import Timeline from './components/Timeline';
 
 function Dashboard({ user }) {
   return (
@@ -36,6 +37,7 @@ function Header({ user }) {
             <>
               <Link to="/habits" className="btn" style={{ background: 'transparent', color: 'white' }}>Habits</Link>
               <Link to="/analysis" className="btn" style={{ background: 'transparent', color: 'white' }}>Analysis</Link>
+              <Link to="/timeline" className="btn" style={{ background: 'transparent', color: 'white' }}>Timeline</Link>
               <button onClick={() => signOut(auth)} className="btn" style={{ background: 'rgba(255,255,255,0.1)' }}>
                 Sign Out
               </button>
@@ -86,6 +88,7 @@ function App() {
         <Route path="/" element={user ? <Dashboard user={user} /> : <Home />} />
         <Route path="/habits" element={user ? <Dashboard user={user} /> : <Home />} />
         <Route path="/analysis" element={user ? <Analysis user={user} /> : <Home />} />
+        <Route path="/timeline" element={user ? <Timeline user={user} /> : <Home />} />
         <Route path="*" element={<Home />} />
       </Routes>
     </Router>

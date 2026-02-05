@@ -19,6 +19,14 @@ export default function Habits({ user }) {
     const [target, setTarget] = useState('');
     const [unit, setUnit] = useState('');
 
+    // Metadata State
+    const [labels, setLabels] = useState([]); // Array of label strings
+    const [labelInput, setLabelInput] = useState(''); // Current input value
+    const [difficulty, setDifficulty] = useState('');
+    const [timeRequired, setTimeRequired] = useState('');
+    const [showDifficultyDropdown, setShowDifficultyDropdown] = useState(false);
+    const [showTimeDropdown, setShowTimeDropdown] = useState(false);
+
     // Logging State (for numeric inputs)
     const [logValues, setLogValues] = useState({}); // { habitId: value }
 
@@ -33,6 +41,21 @@ export default function Habits({ user }) {
 
         return unsubscribe;
     }, [user]);
+
+    // Tag Management Functions
+    const addLabelTag = (e) => {
+        if (e.key === 'Enter' && labelInput.trim()) {
+            e.preventDefault();
+            if (!labels.includes(labelInput.trim())) {
+                setLabels([...labels, labelInput.trim()]);
+            }
+            setLabelInput('');
+        }
+    };
+
+    const removeLabel = (labelToRemove) => {
+        setLabels(labels.filter(l => l !== labelToRemove));
+    };
 
     const addHabit = async (e) => {
         e.preventDefault();
@@ -60,7 +83,11 @@ export default function Habits({ user }) {
             logs: {}, // Map of date -> value
             goalType,
             target: goalType === 'numeric' ? Number(target) : null,
-            unit: goalType === 'numeric' ? unit : null
+            unit: goalType === 'numeric' ? unit : null,
+            // Metadata
+            labels: labels.length > 0 ? labels : null, // Array of strings
+            difficulty: difficulty || null,
+            timeRequired: timeRequired || null
         });
 
         // Reset Form
@@ -68,6 +95,10 @@ export default function Habits({ user }) {
         setGoalType('simple');
         setTarget('');
         setUnit('');
+        setLabels([]);
+        setLabelInput('');
+        setDifficulty('');
+        setTimeRequired('');
     };
 
     const toggleHabit = async (habit, dateStr) => {
@@ -286,6 +317,166 @@ export default function Habits({ user }) {
                                 />
                             </>
                         )}
+                    </div>
+
+                    {/* Metadata Fields Row */}
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        {/* Labels - Multi-Tag Input */}
+                        <div style={{ flex: '1 1 200px', minWidth: '200px' }}>
+                            {/* Tag Chips */}
+                            {labels.length > 0 && (
+                                <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginBottom: '0.4rem' }}>
+                                    {labels.map(tag => (
+                                        <span
+                                            key={tag}
+                                            style={{
+                                                padding: '0.3rem 0.5rem',
+                                                fontSize: '0.8rem',
+                                                borderRadius: '4px',
+                                                background: 'rgba(72, 219, 251, 0.3)',
+                                                color: '#48dbfb',
+                                                border: '1px solid rgba(72, 219, 251, 0.5)',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '0.3rem'
+                                            }}
+                                        >
+                                            🏷️ {tag}
+                                            <button
+                                                type="button"
+                                                onClick={() => removeLabel(tag)}
+                                                style={{
+                                                    background: 'none',
+                                                    border: 'none',
+                                                    color: '#48dbfb',
+                                                    cursor: 'pointer',
+                                                    padding: '0',
+                                                    fontSize: '0.9rem',
+                                                    lineHeight: 1,
+                                                    opacity: 0.7
+                                                }}
+                                                onMouseOver={(e) => e.target.style.opacity = '1'}
+                                                onMouseOut={(e) => e.target.style.opacity = '0.7'}
+                                            >
+                                                ×
+                                            </button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                            {/* Input for adding new tags */}
+                            <input
+                                type="text"
+                                value={labelInput}
+                                onChange={(e) => setLabelInput(e.target.value)}
+                                onKeyDown={addLabelTag}
+                                placeholder="Labels (press Enter to add)"
+                                className="custom-input"
+                                style={{ width: '100%' }}
+                            />
+                        </div>
+
+                        {/* Difficulty Dropdown */}
+                        <div
+                            style={{ position: 'relative', flex: '0 1 auto', minWidth: '130px' }}
+                            tabIndex={0}
+                            onBlur={() => setTimeout(() => setShowDifficultyDropdown(false), 200)}
+                        >
+                            <div
+                                className="custom-input"
+                                onClick={() => setShowDifficultyDropdown(!showDifficultyDropdown)}
+                                style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                            >
+                                <span>{difficulty || 'Difficulty'}</span>
+                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>▼</span>
+                            </div>
+
+                            {showDifficultyDropdown && (
+                                <div className="custom-dropdown-menu">
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setDifficulty(''); setShowDifficultyDropdown(false); }}
+                                    >
+                                        None
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setDifficulty('Easy'); setShowDifficultyDropdown(false); }}
+                                    >
+                                        🟢 Easy
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setDifficulty('Medium'); setShowDifficultyDropdown(false); }}
+                                    >
+                                        🟡 Medium
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setDifficulty('Hard'); setShowDifficultyDropdown(false); }}
+                                    >
+                                        🔴 Hard
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Time Required Dropdown */}
+                        <div
+                            style={{ position: 'relative', flex: '0 1 auto', minWidth: '140px' }}
+                            tabIndex={0}
+                            onBlur={() => setTimeout(() => setShowTimeDropdown(false), 200)}
+                        >
+                            <div
+                                className="custom-input"
+                                onClick={() => setShowTimeDropdown(!showTimeDropdown)}
+                                style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                            >
+                                <span>{timeRequired || 'Time'}</span>
+                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>▼</span>
+                            </div>
+
+                            {showTimeDropdown && (
+                                <div className="custom-dropdown-menu">
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setTimeRequired(''); setShowTimeDropdown(false); }}
+                                    >
+                                        None
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setTimeRequired('5 min'); setShowTimeDropdown(false); }}
+                                    >
+                                        ⏱️ 5 min
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setTimeRequired('15 min'); setShowTimeDropdown(false); }}
+                                    >
+                                        ⏱️ 15 min
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setTimeRequired('30 min'); setShowTimeDropdown(false); }}
+                                    >
+                                        ⏱️ 30 min
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setTimeRequired('1 hour'); setShowTimeDropdown(false); }}
+                                    >
+                                        ⏱️ 1 hour
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setTimeRequired('2+ hours'); setShowTimeDropdown(false); }}
+                                    >
+                                        ⏱️ 2+ hours
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
                         <button type="submit" className="btn btn-primary" style={{ marginLeft: 'auto' }}>Add Habit</button>
                     </div>
@@ -369,7 +560,68 @@ export default function Habits({ user }) {
                                                             }}>
                                                                 {habit.text}
                                                             </span>
-                                                            <span style={{ fontSize: '0.85rem', color: 'var(--color-primary)' }}>
+
+                                                            {/* Metadata Badges */}
+                                                            <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+                                                                {/* Multiple Labels */}
+                                                                {habit.labels && habit.labels.map(label => (
+                                                                    <span key={label} style={{
+                                                                        padding: '0.2rem 0.5rem',
+                                                                        fontSize: '0.75rem',
+                                                                        borderRadius: '4px',
+                                                                        background: 'rgba(72, 219, 251, 0.2)',
+                                                                        color: '#48dbfb',
+                                                                        border: '1px solid rgba(72, 219, 251, 0.3)'
+                                                                    }}>
+                                                                        🏷️ {label}
+                                                                    </span>
+                                                                ))}
+                                                                {/* Legacy single label support */}
+                                                                {!habit.labels && habit.label && (
+                                                                    <span style={{
+                                                                        padding: '0.2rem 0.5rem',
+                                                                        fontSize: '0.75rem',
+                                                                        borderRadius: '4px',
+                                                                        background: 'rgba(72, 219, 251, 0.2)',
+                                                                        color: '#48dbfb',
+                                                                        border: '1px solid rgba(72, 219, 251, 0.3)'
+                                                                    }}>
+                                                                        🏷️ {habit.label}
+                                                                    </span>
+                                                                )}
+                                                                {habit.difficulty && (
+                                                                    <span style={{
+                                                                        padding: '0.2rem 0.5rem',
+                                                                        fontSize: '0.75rem',
+                                                                        borderRadius: '4px',
+                                                                        background: habit.difficulty === 'Easy' ? 'rgba(46, 213, 115, 0.2)' :
+                                                                            habit.difficulty === 'Medium' ? 'rgba(254, 202, 87, 0.2)' :
+                                                                                'rgba(255, 107, 107, 0.2)',
+                                                                        color: habit.difficulty === 'Easy' ? '#2ed573' :
+                                                                            habit.difficulty === 'Medium' ? '#feca57' :
+                                                                                '#ff6b6b',
+                                                                        border: `1px solid ${habit.difficulty === 'Easy' ? 'rgba(46, 213, 115, 0.3)' :
+                                                                            habit.difficulty === 'Medium' ? 'rgba(254, 202, 87, 0.3)' :
+                                                                                'rgba(255, 107, 107, 0.3)'}`
+                                                                    }}>
+                                                                        {habit.difficulty === 'Easy' ? '🟢' : habit.difficulty === 'Medium' ? '🟡' : '🔴'} {habit.difficulty}
+                                                                    </span>
+                                                                )}
+                                                                {habit.timeRequired && (
+                                                                    <span style={{
+                                                                        padding: '0.2rem 0.5rem',
+                                                                        fontSize: '0.75rem',
+                                                                        borderRadius: '4px',
+                                                                        background: 'rgba(162, 155, 254, 0.2)',
+                                                                        color: '#a29bfe',
+                                                                        border: '1px solid rgba(162, 155, 254, 0.3)'
+                                                                    }}>
+                                                                        ⏱️ {habit.timeRequired}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            <span style={{ fontSize: '0.85rem', color: 'var(--color-primary)', display: 'block', marginTop: '0.3rem' }}>
                                                                 {monthlyCount} days this month
                                                             </span>
                                                         </div>

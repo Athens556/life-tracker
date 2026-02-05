@@ -161,6 +161,111 @@ export default function Analysis({ user }) {
                     </LineChart>
                 </ResponsiveContainer>
             </div>
+
+            {/* Calendar View */}
+            <div className="card" style={{ padding: '2rem', marginTop: '2rem' }}>
+                <h3 style={{ marginBottom: '1.5rem', fontSize: '1.2rem' }}>📅 Monthly Calendar</h3>
+                {(() => {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = now.getMonth();
+                    const firstDay = new Date(year, month, 1).getDay();
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+                    const monthName = now.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+                    const getCompletionForDate = (day) => {
+                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        let count = 0;
+                        habits.forEach(habit => {
+                            if (habit.completedDates?.includes(dateStr)) {
+                                count++;
+                            }
+                        });
+                        return count;
+                    };
+
+                    const totalHabits = habits.length;
+
+                    return (
+                        <>
+                            <div style={{ textAlign: 'center', marginBottom: '1rem', fontSize: '1.1rem', fontWeight: 'bold' }}>
+                                {monthName}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.5rem' }}>
+                                {/* Day headers */}
+                                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                                    <div key={day} style={{ textAlign: 'center', fontSize: '0.8rem', color: 'var(--color-text-dim)', padding: '0.5rem' }}>
+                                        {day}
+                                    </div>
+                                ))}
+
+                                {/* Empty cells for offset */}
+                                {Array.from({ length: firstDay }, (_, i) => (
+                                    <div key={`empty-${i}`} />
+                                ))}
+
+                                {/* Calendar days */}
+                                {Array.from({ length: daysInMonth }, (_, i) => {
+                                    const day = i + 1;
+                                    const completedCount = getCompletionForDate(day);
+                                    const completionRate = totalHabits > 0 ? completedCount / totalHabits : 0;
+                                    const isToday = day === now.getDate();
+
+                                    return (
+                                        <div
+                                            key={day}
+                                            style={{
+                                                position: 'relative',
+                                                aspectRatio: '1',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                background: isToday ? 'rgba(72, 219, 251, 0.1)' : 'rgba(255,255,255,0.03)',
+                                                borderRadius: 'var(--radius-md)',
+                                                border: isToday ? '2px solid var(--color-primary)' : '1px solid rgba(255,255,255,0.1)',
+                                                padding: '0.5rem'
+                                            }}
+                                        >
+                                            <div style={{ fontSize: '0.9rem', marginBottom: '0.3rem', fontWeight: isToday ? 'bold' : 'normal' }}>
+                                                {day}
+                                            </div>
+                                            {completedCount > 0 && (
+                                                <div
+                                                    style={{
+                                                        width: '32px',
+                                                        height: '32px',
+                                                        borderRadius: '50%',
+                                                        background: `conic-gradient(var(--color-primary) ${completionRate * 360}deg, rgba(255,255,255,0.1) 0deg)`,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 'bold'
+                                                    }}
+                                                >
+                                                    <div style={{
+                                                        width: '24px',
+                                                        height: '24px',
+                                                        borderRadius: '50%',
+                                                        background: 'var(--color-surface)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center'
+                                                    }}>
+                                                        {completedCount}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    );
+                })()}
+            </div>
         </div>
     );
 }

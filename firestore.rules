@@ -3,6 +3,11 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Timeline profiles - document ID is the userId
+    match /timelineProfiles/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
     // Allow access ONLY if the document belongs to the authenticated user
     match /{document=**} {
       // Check for reading/updating/deleting existing documents
