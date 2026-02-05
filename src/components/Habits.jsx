@@ -6,12 +6,15 @@ import { analyzeHabits } from '../lib/gemini.js';
 
 export default function Habits({ user }) {
     const [habits, setHabits] = useState([]);
+    const [collapsedFolders, setCollapsedFolders] = useState({}); // { "Folder Name": true/false }
     const [aiResponse, setAiResponse] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     // Form State
     const [newHabit, setNewHabit] = useState('');
     const [newCategory, setNewCategory] = useState('');
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [showGoalSuggestions, setShowGoalSuggestions] = useState(false); // New state for goal dropdown
     const [goalType, setGoalType] = useState('simple'); // simple, numeric
     const [target, setTarget] = useState('');
     const [unit, setUnit] = useState('');
@@ -142,6 +145,14 @@ export default function Habits({ user }) {
         const response = await analyzeHabits(habits, user.displayName || 'Friend');
         setAiResponse(response);
         setIsAnalyzing(false);
+        setIsAnalyzing(false);
+    };
+
+    const toggleFolder = (category) => {
+        setCollapsedFolders(prev => ({
+            ...prev,
+            [category]: !prev[category]
+        }));
     };
 
     return (
@@ -172,19 +183,43 @@ export default function Habits({ user }) {
             )}
 
             {/* Create Habit Form */}
-            <div className="card" style={{ marginBottom: '2rem', padding: '1.5rem', background: 'rgba(255, 255, 255, 0.05)' }}>
+            <div className="card" style={{ position: 'relative', zIndex: 20, marginBottom: '2rem', padding: '1.5rem', background: 'rgba(255, 255, 255, 0.05)' }}>
                 <h3 style={{ marginBottom: '1rem', fontSize: '1rem', color: 'var(--color-text-dim)' }}>Create New Habit</h3>
                 <form onSubmit={addHabit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        <input
-                            type="text"
-                            value={newCategory}
-                            onChange={(e) => setNewCategory(e.target.value)}
-                            placeholder="Folder (e.g. Health)"
-                            list="category-suggestions"
-                            style={{ flex: 1, minWidth: '150px', padding: '0.8rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-bg)', color: 'white' }}
-                        />
-                        <datalist id="category-suggestions">{existingCategories.map(cat => <option key={cat} value={cat} />)}</datalist>
+
+                        {/* Folder Selection Logic */}
+                        {/* Folder Selection Logic */}
+                        <div style={{ flex: 1, minWidth: '150px', position: 'relative' }}>
+                            <input
+                                type="text"
+                                value={newCategory}
+                                onChange={(e) => setNewCategory(e.target.value)}
+                                onFocus={() => setShowSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} // Delay to allow click
+                                placeholder="Folder (e.g. Health)"
+                                className="custom-input"
+                            />
+                            {showSuggestions && existingCategories.length > 0 && (
+                                <div className="custom-dropdown-menu">
+                                    {existingCategories
+                                        .filter(cat => cat.toLowerCase().includes(newCategory.toLowerCase()))
+                                        .map(cat => (
+                                            <div
+                                                key={cat}
+                                                onMouseDown={() => {
+                                                    setNewCategory(cat);
+                                                    setShowSuggestions(false);
+                                                }}
+                                                className="custom-dropdown-item"
+                                            >
+                                                {cat}
+                                            </div>
+                                        ))
+                                    }
+                                </div>
+                            )}
+                        </div>
 
                         <input
                             type="text"
@@ -197,14 +232,39 @@ export default function Habits({ user }) {
                     </div>
 
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <select
-                            value={goalType}
-                            onChange={(e) => setGoalType(e.target.value)}
-                            style={{ padding: '0.8rem', borderRadius: 'var(--radius-md)', border: 'none', background: 'var(--color-bg)', color: 'white' }}
+
+                        {/* Goal Type Custom Dropdown */}
+                        <div
+                            style={{ position: 'relative', width: '260px' }}
+                            tabIndex={0}
+                            onBlur={() => setTimeout(() => setShowGoalSuggestions(false), 200)}
                         >
-                            <option value="simple">✅ Simple (Done/Not Done)</option>
-                            <option value="numeric">🔢 Numeric (e.g. 10000 Steps)</option>
-                        </select>
+                            <div
+                                className="custom-input"
+                                onClick={() => setShowGoalSuggestions(!showGoalSuggestions)}
+                                style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                            >
+                                <span>{goalType === 'simple' ? '✅ Simple (Done/Not Done)' : '🔢 Numeric (e.g. Steps)'}</span>
+                                <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>▼</span>
+                            </div>
+
+                            {showGoalSuggestions && (
+                                <div className="custom-dropdown-menu">
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setGoalType('simple'); setShowGoalSuggestions(false); }}
+                                    >
+                                        ✅ Simple (Done/Not Done)
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setGoalType('numeric'); setShowGoalSuggestions(false); }}
+                                    >
+                                        🔢 Numeric (e.g. 10000 Steps)
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
                         {goalType === 'numeric' && (
                             <>
@@ -236,99 +296,123 @@ export default function Habits({ user }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                 {sortedCategories.map(category => (
                     <div key={category} className="animate-fade-in">
-                        <h3 style={{ marginBottom: '1rem', color: 'var(--color-secondary)', opacity: 0.9, fontSize: '1.2rem' }}>
-                            📂 {category}
-                        </h3>
-                        <div style={{ display: 'grid', gap: '1rem' }}>
-                            {groupedHabits[category].map(habit => {
-                                const isCompletedToday = habit.completedDates?.includes(today);
-                                const monthlyCount = getMonthlyStats(habit.completedDates);
-                                const isNumeric = habit.goalType === 'numeric';
-                                const currentLog = habit.logs?.[today] || 0;
+                        <div
+                            onClick={() => toggleFolder(category)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                cursor: 'pointer',
+                                marginBottom: '1rem',
+                                userSelect: 'none'
+                            }}
+                        >
+                            <span style={{
+                                marginRight: '0.5rem',
+                                transform: collapsedFolders[category] ? 'rotate(-90deg)' : 'rotate(0deg)',
+                                transition: 'transform 0.2s ease'
+                            }}>
+                                ▼
+                            </span>
+                            <h3 style={{ margin: 0, color: 'var(--color-secondary)', opacity: 0.9, fontSize: '1.2rem' }}>
+                                📂 {category}
+                            </h3>
+                            <span style={{ marginLeft: '0.5rem', fontSize: '0.9rem', color: 'var(--color-text-dim)' }}>
+                                ({groupedHabits[category].length})
+                            </span>
+                        </div>
 
-                                return (
-                                    <div key={habit.id} className="card" style={{ transition: 'var(--transition)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+                        {!collapsedFolders[category] && (
+                            <div style={{ display: 'grid', gap: '1rem', paddingLeft: '1rem' }}>
+                                {groupedHabits[category].map(habit => {
+                                    const isCompletedToday = habit.completedDates?.includes(today);
+                                    const monthlyCount = getMonthlyStats(habit.completedDates);
+                                    const isNumeric = habit.goalType === 'numeric';
+                                    const currentLog = habit.logs?.[today] || 0;
 
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                                                    {/* Checkbox / Completion Indicator */}
-                                                    {!isNumeric ? (
-                                                        <button
-                                                            onClick={() => toggleHabit(habit, today)}
-                                                            style={{
+                                    return (
+                                        <div key={habit.id} className="card" style={{ transition: 'var(--transition)' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                                                        {/* Checkbox / Completion Indicator */}
+                                                        {!isNumeric ? (
+                                                            <button
+                                                                onClick={() => toggleHabit(habit, today)}
+                                                                style={{
+                                                                    width: '32px', height: '32px', borderRadius: '50%',
+                                                                    border: isCompletedToday ? 'none' : '2px solid var(--color-text-dim)',
+                                                                    background: isCompletedToday ? 'var(--color-secondary)' : 'transparent',
+                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                    color: 'white', transition: 'var(--transition)', flexShrink: 0
+                                                                }}
+                                                                title="Mark today"
+                                                            >
+                                                                {isCompletedToday && '✓'}
+                                                            </button>
+                                                        ) : (
+                                                            <div style={{
                                                                 width: '32px', height: '32px', borderRadius: '50%',
-                                                                border: isCompletedToday ? 'none' : '2px solid var(--color-text-dim)',
-                                                                background: isCompletedToday ? 'var(--color-secondary)' : 'transparent',
-                                                                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                                color: 'white', transition: 'var(--transition)', flexShrink: 0
-                                                            }}
-                                                            title="Mark today"
-                                                        >
-                                                            {isCompletedToday && '✓'}
-                                                        </button>
-                                                    ) : (
-                                                        <div style={{
-                                                            width: '32px', height: '32px', borderRadius: '50%',
-                                                            background: isCompletedToday ? 'var(--color-secondary)' : 'rgba(255,255,255,0.1)',
-                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            fontSize: '0.8rem', fontWeight: 'bold'
-                                                        }}>
-                                                            {isCompletedToday ? '✓' : '#'}
+                                                                background: isCompletedToday ? 'var(--color-secondary)' : 'rgba(255,255,255,0.1)',
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                fontSize: '0.8rem', fontWeight: 'bold'
+                                                            }}>
+                                                                {isCompletedToday ? '✓' : '#'}
+                                                            </div>
+                                                        )}
+
+                                                        <div>
+                                                            <span style={{
+                                                                fontSize: '1.2rem', display: 'block',
+                                                                textDecoration: isCompletedToday ? 'line-through' : 'none',
+                                                                color: isCompletedToday ? 'var(--color-text-dim)' : 'var(--color-text)'
+                                                            }}>
+                                                                {habit.text}
+                                                            </span>
+                                                            <span style={{ fontSize: '0.85rem', color: 'var(--color-primary)' }}>
+                                                                {monthlyCount} days this month
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Numeric Input Area */}
+                                                    {isNumeric && (
+                                                        <div style={{ marginLeft: '3rem', marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                                            <div style={{ fontSize: '0.9rem', color: 'var(--color-text-dim)' }}>
+                                                                Today: <strong style={{ color: 'white' }}>{currentLog}</strong> / {habit.target} {habit.unit}
+                                                            </div>
+                                                            <div style={{ height: '6px', flex: 1, background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden', maxWidth: '100px' }}>
+                                                                <div style={{
+                                                                    height: '100%',
+                                                                    width: `${Math.min((currentLog / (habit.target || 1)) * 100, 100)}%`,
+                                                                    background: isCompletedToday ? 'var(--color-secondary)' : 'var(--color-primary)'
+                                                                }} />
+                                                            </div>
+                                                            <input
+                                                                type="number"
+                                                                placeholder="Add..."
+                                                                value={logValues[habit.id] || ''}
+                                                                onChange={(e) => setLogValues({ ...logValues, [habit.id]: e.target.value })}
+                                                                onBlur={(e) => logNumericValue(habit, e.target.value)}
+                                                                onKeyDown={(e) => e.key === 'Enter' && logNumericValue(habit, e.currentTarget.value)}
+                                                                style={{
+                                                                    width: '80px', padding: '0.4rem', borderRadius: '4px',
+                                                                    border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: 'white'
+                                                                }}
+                                                            />
                                                         </div>
                                                     )}
 
-                                                    <div>
-                                                        <span style={{
-                                                            fontSize: '1.2rem', display: 'block',
-                                                            textDecoration: isCompletedToday ? 'line-through' : 'none',
-                                                            color: isCompletedToday ? 'var(--color-text-dim)' : 'var(--color-text)'
-                                                        }}>
-                                                            {habit.text}
-                                                        </span>
-                                                        <span style={{ fontSize: '0.85rem', color: 'var(--color-primary)' }}>
-                                                            {monthlyCount} days this month
-                                                        </span>
-                                                    </div>
                                                 </div>
-
-                                                {/* Numeric Input Area */}
-                                                {isNumeric && (
-                                                    <div style={{ marginLeft: '3rem', marginTop: '0.5rem', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                                        <div style={{ fontSize: '0.9rem', color: 'var(--color-text-dim)' }}>
-                                                            Today: <strong style={{ color: 'white' }}>{currentLog}</strong> / {habit.target} {habit.unit}
-                                                        </div>
-                                                        <div style={{ height: '6px', flex: 1, background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden', maxWidth: '100px' }}>
-                                                            <div style={{
-                                                                height: '100%',
-                                                                width: `${Math.min((currentLog / (habit.target || 1)) * 100, 100)}%`,
-                                                                background: isCompletedToday ? 'var(--color-secondary)' : 'var(--color-primary)'
-                                                            }} />
-                                                        </div>
-                                                        <input
-                                                            type="number"
-                                                            placeholder="Add..."
-                                                            value={logValues[habit.id] || ''}
-                                                            onChange={(e) => setLogValues({ ...logValues, [habit.id]: e.target.value })}
-                                                            onBlur={(e) => logNumericValue(habit, e.target.value)}
-                                                            onKeyDown={(e) => e.key === 'Enter' && logNumericValue(habit, e.currentTarget.value)}
-                                                            style={{
-                                                                width: '80px', padding: '0.4rem', borderRadius: '4px',
-                                                                border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: 'white'
-                                                            }}
-                                                        />
-                                                    </div>
-                                                )}
-
+                                                <button onClick={() => deleteHabit(habit.id)} style={{ background: 'transparent', border: 'none', color: 'var(--color-text-dim)', cursor: 'pointer', opacity: 0.5 }}>✕</button>
                                             </div>
-                                            <button onClick={() => deleteHabit(habit.id)} style={{ background: 'transparent', border: 'none', color: 'var(--color-text-dim)', cursor: 'pointer', opacity: 0.5 }}>✕</button>
-                                        </div>
 
-                                        <HabitCalendar completedDates={habit.completedDates || []} onToggleDate={(date) => toggleHabit(habit, date)} />
-                                    </div>
-                                );
-                            })}
-                        </div>
+                                            <HabitCalendar completedDates={habit.completedDates || []} onToggleDate={(date) => toggleHabit(habit, date)} />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
                     </div>
                 ))}
 
