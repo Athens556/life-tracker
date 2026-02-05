@@ -4,6 +4,7 @@ import { auth } from './lib/firebase';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import Habits from './components/Habits';
 import VibeLogger from './components/VibeLogger';
+import Analysis from './components/Analysis';
 
 function Dashboard({ user }) {
   return (
@@ -34,6 +35,7 @@ function Header({ user }) {
           {user ? (
             <>
               <Link to="/habits" className="btn" style={{ background: 'transparent', color: 'white' }}>Habits</Link>
+              <Link to="/analysis" className="btn" style={{ background: 'transparent', color: 'white' }}>Analysis</Link>
               <button onClick={() => signOut(auth)} className="btn" style={{ background: 'rgba(255,255,255,0.1)' }}>
                 Sign Out
               </button>
@@ -83,6 +85,7 @@ function App() {
       <Routes>
         <Route path="/" element={user ? <Dashboard user={user} /> : <Home />} />
         <Route path="/habits" element={user ? <Dashboard user={user} /> : <Home />} />
+        <Route path="/analysis" element={user ? <Analysis user={user} /> : <Home />} />
         <Route path="*" element={<Home />} />
       </Routes>
     </Router>
