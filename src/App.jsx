@@ -6,11 +6,16 @@ import Habits from './components/Habits';
 import VibeLogger from './components/VibeLogger';
 import Analysis from './components/Analysis';
 import Timeline from './components/Timeline';
+import Resistance from './components/Resistance';
+import CravingButton from './components/CravingButton';
 
 function Dashboard({ user }) {
   return (
     <>
       <VibeLogger user={user} />
+      <div style={{ maxWidth: '800px', margin: '0 auto 2rem', padding: '0 1.5rem', textAlign: 'center' }}>
+        <CravingButton user={user} compact />
+      </div>
       <Habits user={user} />
     </>
   );
@@ -38,6 +43,7 @@ function Header({ user }) {
               <Link to="/habits" className="btn" style={{ background: 'transparent', color: 'white' }}>Habits</Link>
               <Link to="/analysis" className="btn" style={{ background: 'transparent', color: 'white' }}>Analysis</Link>
               <Link to="/timeline" className="btn" style={{ background: 'transparent', color: 'white' }}>Timeline</Link>
+              <Link to="/resistance" className="btn" style={{ background: 'transparent', color: 'white' }}>Resistance</Link>
               <button onClick={() => signOut(auth)} className="btn" style={{ background: 'rgba(255,255,255,0.1)' }}>
                 Sign Out
               </button>
@@ -89,6 +95,7 @@ function App() {
         <Route path="/habits" element={user ? <Dashboard user={user} /> : <Home />} />
         <Route path="/analysis" element={user ? <Analysis user={user} /> : <Home />} />
         <Route path="/timeline" element={user ? <Timeline user={user} /> : <Home />} />
+        <Route path="/resistance" element={user ? <Resistance user={user} /> : <Home />} />
         <Route path="*" element={<Home />} />
       </Routes>
     </Router>

@@ -105,8 +105,8 @@ export default function Habits({ user }) {
         const targetDate = dateStr || new Date().toISOString().split('T')[0];
         const habitRef = doc(db, 'habits', habit.id);
 
-        // Boolean Logic (Simple)
-        if (habit.goalType === 'simple' || !habit.goalType) {
+        // Boolean Logic (Simple + Negative: a checked day on a negative habit means "avoided it")
+        if (habit.goalType === 'simple' || habit.goalType === 'negative' || !habit.goalType) {
             const isCompleted = habit.completedDates?.includes(targetDate);
             if (isCompleted) {
                 await updateDoc(habitRef, { completedDates: arrayRemove(targetDate) });
@@ -275,7 +275,7 @@ export default function Habits({ user }) {
                                 onClick={() => setShowGoalSuggestions(!showGoalSuggestions)}
                                 style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                             >
-                                <span>{goalType === 'simple' ? '✅ Simple (Done/Not Done)' : '🔢 Numeric (e.g. Steps)'}</span>
+                                <span>{goalType === 'simple' ? '✅ Simple (Done/Not Done)' : goalType === 'numeric' ? '🔢 Numeric (e.g. Steps)' : '🚫 Negative (Avoid doing this)'}</span>
                                 <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>▼</span>
                             </div>
 
@@ -292,6 +292,12 @@ export default function Habits({ user }) {
                                         onClick={() => { setGoalType('numeric'); setShowGoalSuggestions(false); }}
                                     >
                                         🔢 Numeric (e.g. 10000 Steps)
+                                    </div>
+                                    <div
+                                        className="custom-dropdown-item"
+                                        onClick={() => { setGoalType('negative'); setShowGoalSuggestions(false); }}
+                                    >
+                                        🚫 Negative (Avoid doing this)
                                     </div>
                                 </div>
                             )}
@@ -518,6 +524,7 @@ export default function Habits({ user }) {
                                     const isCompletedToday = habit.completedDates?.includes(today);
                                     const monthlyCount = getMonthlyStats(habit.completedDates);
                                     const isNumeric = habit.goalType === 'numeric';
+                                    const isNegative = habit.goalType === 'negative';
                                     const currentLog = habit.logs?.[today] || 0;
 
                                     return (
@@ -532,12 +539,12 @@ export default function Habits({ user }) {
                                                                 onClick={() => toggleHabit(habit, today)}
                                                                 style={{
                                                                     width: '32px', height: '32px', borderRadius: '50%',
-                                                                    border: isCompletedToday ? 'none' : '2px solid var(--color-text-dim)',
-                                                                    background: isCompletedToday ? 'var(--color-secondary)' : 'transparent',
+                                                                    border: isCompletedToday ? 'none' : `2px solid ${isNegative ? '#ff6b6b' : 'var(--color-text-dim)'}`,
+                                                                    background: isCompletedToday ? (isNegative ? '#2ed573' : 'var(--color-secondary)') : 'transparent',
                                                                     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                                                                     color: 'white', transition: 'var(--transition)', flexShrink: 0
                                                                 }}
-                                                                title="Mark today"
+                                                                title={isNegative ? 'Mark avoided today' : 'Mark today'}
                                                             >
                                                                 {isCompletedToday && '✓'}
                                                             </button>
@@ -555,14 +562,26 @@ export default function Habits({ user }) {
                                                         <div>
                                                             <span style={{
                                                                 fontSize: '1.2rem', display: 'block',
-                                                                textDecoration: isCompletedToday ? 'line-through' : 'none',
-                                                                color: isCompletedToday ? 'var(--color-text-dim)' : 'var(--color-text)'
+                                                                textDecoration: isCompletedToday && !isNegative ? 'line-through' : 'none',
+                                                                color: isCompletedToday && !isNegative ? 'var(--color-text-dim)' : 'var(--color-text)'
                                                             }}>
                                                                 {habit.text}
                                                             </span>
 
                                                             {/* Metadata Badges */}
                                                             <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+                                                                {isNegative && (
+                                                                    <span style={{
+                                                                        padding: '0.2rem 0.5rem',
+                                                                        fontSize: '0.75rem',
+                                                                        borderRadius: '4px',
+                                                                        background: 'rgba(255, 107, 107, 0.2)',
+                                                                        color: '#ff6b6b',
+                                                                        border: '1px solid rgba(255, 107, 107, 0.3)'
+                                                                    }}>
+                                                                        🚫 Avoid
+                                                                    </span>
+                                                                )}
                                                                 {/* Multiple Labels */}
                                                                 {habit.labels && habit.labels.map(label => (
                                                                     <span key={label} style={{
@@ -621,8 +640,8 @@ export default function Habits({ user }) {
                                                                 )}
                                                             </div>
 
-                                                            <span style={{ fontSize: '0.85rem', color: 'var(--color-primary)', display: 'block', marginTop: '0.3rem' }}>
-                                                                {monthlyCount} days this month
+                                                            <span style={{ fontSize: '0.85rem', color: isNegative ? '#2ed573' : 'var(--color-primary)', display: 'block', marginTop: '0.3rem' }}>
+                                                                {monthlyCount} days {isNegative ? 'avoided ' : ''}this month
                                                             </span>
                                                         </div>
                                                     </div>
