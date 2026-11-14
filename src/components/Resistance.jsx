@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { db } from '../lib/firebase';
 import { collection, addDoc, deleteDoc, doc, query, where, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore';
 import CravingButton from './CravingButton';
+import NegativeHabits from './NegativeHabits';
 import {
     CATEGORIES, DEFAULT_FADE_DAYS, MIN_FADE_DAYS, MAX_FADE_DAYS, clampFadeDays,
     normalizeAct, extractMag, localDayKey, addDays, scoreHistory, liveValue,
@@ -165,23 +166,33 @@ export default function Resistance({ user }) {
 
     const todayEntries = useMemo(() => {
         const list = results.filter((r) => r.dayKey === today).reverse();
-        // Collapse craving taps into a single row so ten fridge-taps don't flood the list.
-        const cravingRows = list.filter((r) => r.act === 'craving');
-        const rest = list.filter((r) => r.act !== 'craving');
-        return { rest, cravingCount: cravingRows.length, cravingValue: round1(cravingRows.reduce((s, r) => s + r.value, 0)) };
+        // Button taps (the generic craving and anything tied to a habit) collapse
+        // into one row per act, so ten fridge-taps don't flood the list.
+        const isTap = (r) => r.act === 'craving' || r.habitId;
+        const taps = new Map();
+        for (const r of list.filter(isTap)) {
+            const key = `${r.cat}|${r.act}`;
+            const t = taps.get(key) || { key, cat: r.cat, label: r.label, count: 0, value: 0 };
+            t.count += 1;
+            t.value = round1(t.value + r.value);
+            taps.set(key, t);
+        }
+        return { rest: list.filter((r) => !isTap(r)), taps: [...taps.values()] };
     }, [results, today]);
 
     // Known acts per category, with what each would score right now.
     const actsByCat = useMemo(() => {
         const map = { N: [], P: [], C: [], R: [] };
+        // Acts tied to a habit are logged from the habit's own buttons, not as free chips.
+        const habitActs = new Set(entries.filter((e) => e.habitId).map((e) => `${e.cat}|${e.act}`));
         for (const [key, g] of groups) {
             const [cat, act] = key.split('|');
-            if (act === 'craving') continue; // craving has its own button
+            if (act === 'craving' || habitActs.has(key)) continue; // these have their own buttons
             map[cat]?.push({ act, label: g.lastLabel, live: liveValue(cat, act, groups, fadeDays, today) });
         }
         for (const cat of Object.keys(map)) map[cat].sort((a, b) => b.live.value - a.live.value);
         return map;
-    }, [groups, fadeDays, today]);
+    }, [groups, entries, fadeDays, today]);
 
     const cravingStats = useMemo(() => {
         const buckets = Array(24).fill(0);
@@ -354,19 +365,19 @@ export default function Resistance({ user }) {
             {/* Today's entries */}
             <div className="card" style={{ marginBottom: '1.5rem' }}>
                 <h3 style={{ fontSize: '1rem', color: 'var(--color-text-dim)', marginBottom: '1rem' }}>Today</h3>
-                {todayEntries.rest.length === 0 && todayEntries.cravingCount === 0 && (
+                {todayEntries.rest.length === 0 && todayEntries.taps.length === 0 && (
                     <p style={{ color: 'var(--color-text-dim)', fontStyle: 'italic', fontSize: '0.9rem' }}>
                         Nothing yet. A quiet day is a gap, not a broken chain.
                     </p>
                 )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {todayEntries.cravingCount > 0 && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                            <CategoryDot cat="N" />
-                            <span style={{ flex: 1 }}>craving ×{todayEntries.cravingCount}</span>
-                            <strong style={{ color: CATEGORIES.N.color }}>+{todayEntries.cravingValue}</strong>
+                    {todayEntries.taps.map((t) => (
+                        <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <CategoryDot cat={t.cat} />
+                            <span style={{ flex: 1 }}>{t.label}{t.count > 1 ? ` ×${t.count}` : ''}</span>
+                            <strong style={{ color: CATEGORIES[t.cat].color }}>+{t.value}</strong>
                         </div>
-                    )}
+                    ))}
                     {todayEntries.rest.map((r) => (
                         <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                             <CategoryDot cat={r.cat} />
@@ -390,6 +401,10 @@ export default function Resistance({ user }) {
                     <h3 style={{ fontSize: '1rem', color: 'var(--color-text-dim)' }}>Cravings resisted</h3>
                     <div style={{ fontSize: '2rem', fontWeight: 700 }}>{cravingStats.todayCount}<span style={{ fontSize: '0.8rem', fontWeight: 400, color: 'var(--color-text-dim)' }}> today</span></div>
                 </div>
+                <div style={{ marginBottom: '1rem' }}>
+                    <NegativeHabits user={user} embedded />
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-dim)', marginBottom: '0.5rem' }}>A craving that belongs to no habit</div>
                 <div style={{ marginBottom: '1.25rem' }}>
                     <CravingButton user={user} />
                 </div>
