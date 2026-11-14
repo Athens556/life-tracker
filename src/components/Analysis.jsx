@@ -1,55 +1,23 @@
-import { useState, useEffect } from 'react';
-import { db } from '../lib/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useHabits, useFolders } from '../lib/habitsContext';
+import { habitUnits, unitDoneOn } from '../lib/folders';
+import { localDayKey, addDays } from '../lib/resistance';
 
-export default function Analysis({ user }) {
-    const [habits, setHabits] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        if (!user) return;
-
-        const q = query(collection(db, 'habits'), where('userId', '==', user.uid));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const habitsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setHabits(habitsData);
-            setLoading(false);
-        });
-
-        return unsubscribe;
-    }, [user]);
-
-    if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading analysis...</div>;
+// A view over `habits`. It counts UNITS: a habit, or a complementary folder
+// (done on a day when any one of its habits is done).
+export default function Analysis() {
+    const habits = useHabits();
+    const folders = useFolders();
+    const units = habitUnits(habits, folders);
 
     // --- Data Processing ---
-    const getLast14Days = () => {
-        const dates = [];
-        for (let i = 13; i >= 0; i--) {
-            const d = new Date();
-            d.setDate(d.getDate() - i);
-            dates.push(d.toISOString().split('T')[0]);
-        }
-        return dates;
-    };
-
-    const last14Days = getLast14Days();
-    const totalGoalsPerDay = last14Days.map(date => {
-        let completedCount = 0;
-        let totalPossible = habits.length; // Assuming all habits are daily for now
-
-        habits.forEach(habit => {
-            if (habit.completedDates?.includes(date)) {
-                completedCount++;
-            }
-        });
-
-        return {
-            date: date.slice(5), // MM-DD
-            completed: completedCount,
-            total: totalPossible
-        };
-    });
+    const today = localDayKey();
+    const last14Days = [...Array(14)].map((_, i) => addDays(today, i - 13));
+    const totalGoalsPerDay = last14Days.map((date) => ({
+        date: date.slice(5), // MM-DD
+        completed: units.filter((u) => unitDoneOn(u, date)).length,
+        total: units.length,
+    }));
 
     // --- Logic for Suggestions ---
     // Calc average completion rate over last 14 days
@@ -85,11 +53,11 @@ export default function Analysis({ user }) {
     // Most Followed Habit Logi
     let mostFollowedHabit = "—";
     if (habits.length > 0) {
-        const sortedByCompletion = [...habits].sort((a, b) =>
+        const sortedByCompletion = [...units].sort((a, b) =>
             (b.completedDates?.length || 0) - (a.completedDates?.length || 0)
         );
         if (sortedByCompletion[0].completedDates?.length > 0) {
-            mostFollowedHabit = sortedByCompletion[0].text;
+            mostFollowedHabit = sortedByCompletion[0].name;
         }
     }
 
@@ -176,16 +144,10 @@ export default function Analysis({ user }) {
 
                     const getCompletionForDate = (day) => {
                         const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                        let count = 0;
-                        habits.forEach(habit => {
-                            if (habit.completedDates?.includes(dateStr)) {
-                                count++;
-                            }
-                        });
-                        return count;
+                        return units.filter((u) => unitDoneOn(u, dateStr)).length;
                     };
 
-                    const totalHabits = habits.length;
+                    const totalHabits = units.length;
 
                     return (
                         <>

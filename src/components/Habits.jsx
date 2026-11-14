@@ -1,13 +1,17 @@
 import { useState } from 'react';
 import { db } from '../lib/firebase';
 import { collection, addDoc, deleteDoc, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { useHabits } from '../lib/habitsContext';
+import { useHabits, useFolders } from '../lib/habitsContext';
+import { FOLDER_TYPES, NO_FOLDER, folderTypeOf } from '../lib/folders';
+import { saveFolder } from '../lib/folderStore';
 import HabitCalendar from './HabitCalendar';
 import { localDayKey } from '../lib/resistance';
 import { analyzeHabits } from '../lib/gemini.js';
 
 export default function Habits({ user }) {
     const habits = useHabits();
+    const folders = useFolders();
+    const [pendingFolderType, setPendingFolderType] = useState(null); // chosen in the form, saved on Add
     const [collapsedFolders, setCollapsedFolders] = useState({}); // { "Folder Name": true/false }
     const [aiResponse, setAiResponse] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -79,6 +83,14 @@ export default function Habits({ user }) {
             difficulty: difficulty || null,
             timeRequired: timeRequired || null
         });
+
+        // The folder type belongs to the folder (habitFolders), not to the habit.
+        // Only a NEW folder takes its type from the form; adding to an existing folder never changes it.
+        const isNewFolder = !habits.some((h) => (h.category || NO_FOLDER) === category);
+        if (category !== NO_FOLDER && isNewFolder && pendingFolderType && pendingFolderType !== folderTypeOf(folders, category)) {
+            await saveFolder(user.uid, category, { type: pendingFolderType });
+        }
+        setPendingFolderType(null);
 
         // Reset Form
         setNewHabit('');
@@ -253,6 +265,22 @@ export default function Habits({ user }) {
                     </div>
 
                     <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+
+                        {/* Folder type: chosen for a new folder, locked for an existing one */}
+                        <select className="custom-input" aria-label="Folder type"
+                            title={existingCategories.includes(newCategory.trim())
+                                ? 'This folder already exists, so its type is fixed here. Switch it from the badge on the folder.'
+                                : 'Set when the folder is created. Applies to the whole folder.'}
+                            disabled={!newCategory.trim() || existingCategories.includes(newCategory.trim())}
+                            value={existingCategories.includes(newCategory.trim())
+                                ? folderTypeOf(folders, newCategory.trim())
+                                : (pendingFolderType ?? 'mandatory')}
+                            onChange={(e) => setPendingFolderType(e.target.value)}
+                            style={{ width: 'auto', maxWidth: '100%' }}>
+                            {Object.entries(FOLDER_TYPES).map(([k, t]) => (
+                                <option key={k} value={k}>Folder: {t.label} ({t.hint})</option>
+                            ))}
+                        </select>
 
                         {/* Goal Type Custom Dropdown */}
                         <div
@@ -506,6 +534,25 @@ export default function Habits({ user }) {
                             <span style={{ marginLeft: '0.5rem', fontSize: '0.9rem', color: 'var(--color-text-dim)' }}>
                                 ({groupedHabits[category].length})
                             </span>
+                            {category !== NO_FOLDER && (
+                                <button type="button" title="Switch folder type"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        saveFolder(user.uid, category, {
+                                            type: folderTypeOf(folders, category) === 'complementary' ? 'mandatory' : 'complementary',
+                                        });
+                                    }}
+                                    style={{
+                                        marginLeft: '0.75rem', padding: '0.2rem 0.6rem', fontSize: '0.75rem', cursor: 'pointer',
+                                        borderRadius: 'var(--radius-full)', fontFamily: 'inherit', color: 'white',
+                                        background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.2)',
+                                    }}>
+                                    {FOLDER_TYPES[folderTypeOf(folders, category)].label}
+                                    {folderTypeOf(folders, category) === 'complementary' && (
+                                        groupedHabits[category].some((h) => h.completedDates?.includes(today)) ? ' · done today ✓' : ' · any one counts'
+                                    )}
+                                </button>
+                            )}
                         </div>
 
                         {!collapsedFolders[category] && (

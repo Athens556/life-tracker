@@ -1,391 +1,248 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { db } from '../lib/firebase';
-import { collection, doc, setDoc, getDoc, query, where, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { useHabits, useFolders } from '../lib/habitsContext';
+import { habitUnits, unitIdByHabit } from '../lib/folders';
+import { roleOf } from '../lib/cascade';
+import {
+    timeToMinutes, unitMinutes, clampDuration, daySegments, normaliseSchedule, freeMinutes,
+} from '../lib/timeline';
+
+// A day plan built from UNITS (a habit, or a complementary folder as one item).
+// Sleep is not a separate setting: it is the Sleep habit, placed like any other.
+// Stored in timelineProfiles/{uid}: work settings + scheduledHabits [{ unitId, startTime, duration }].
+
+const COLORS = {
+    sleep: { bg: 'rgba(72, 61, 139, 0.3)', border: '#9370DB' },
+    work: { bg: 'rgba(255, 140, 0, 0.3)', border: '#FF8C00' },
+    routine: { bg: 'rgba(46, 213, 115, 0.3)', border: '#2ed573' },
+    unit: { bg: 'rgba(72, 219, 251, 0.3)', border: '#48dbfb' },
+};
+const DEFAULT_PROFILE = { workStart: '09:00', workEnd: '17:00', commuteMinutes: 60, morningRoutineMinutes: 30, miscMinutes: 120 };
+const fmt = (mins) => `${Math.floor(mins / 60)}h ${mins % 60}min`;
+const dim = { color: 'var(--color-text-dim)' };
+const small = { padding: '0.4rem 0.5rem', fontSize: '0.85rem', width: 'auto' };
 
 export default function Timeline({ user }) {
-    const [hasProfile, setHasProfile] = useState(false);
+    const habits = useHabits();
+    const folders = useFolders();
     const [loading, setLoading] = useState(true);
-    const [habits, setHabits] = useState([]);
-
-    // Profile form state
-    const [sleepStart, setSleepStart] = useState('22:00');
-    const [sleepEnd, setSleepEnd] = useState('06:00');
-    const [workStart, setWorkStart] = useState('09:00');
-    const [workEnd, setWorkEnd] = useState('17:00');
-    const [commuteMinutes, setCommuteMinutes] = useState(60);
-    const [morningRoutineMinutes, setMorningRoutineMinutes] = useState(30);
-    const [miscMinutes, setMiscMinutes] = useState(120);
-
-    // Timeline state
-    const [scheduledHabits, setScheduledHabits] = useState([]);
-    const [draggedHabit, setDraggedHabit] = useState(null);
+    const [hasProfile, setHasProfile] = useState(false);
+    const [profile, setProfile] = useState(DEFAULT_PROFILE);
+    const [stored, setStored] = useState([]);             // schedule entries as loaded or edited
+    const [legacySleep, setLegacySleep] = useState(null); // sleep times from the old setup form
+    const [dragged, setDragged] = useState(null);
+    const [saved, setSaved] = useState(true);
 
     useEffect(() => {
         if (!user) return;
-
-        // Load timeline profile
-        const loadProfile = async () => {
-            const profileDoc = await getDoc(doc(db, 'timelineProfiles', user.uid));
-            if (profileDoc.exists()) {
-                const data = profileDoc.data();
-                setSleepStart(data.sleepStart);
-                setSleepEnd(data.sleepEnd);
-                setWorkStart(data.workStart);
-                setWorkEnd(data.workEnd);
-                setCommuteMinutes(data.commuteMinutes);
-                setMorningRoutineMinutes(data.morningRoutineMinutes);
-                setMiscMinutes(data.miscMinutes);
-                setScheduledHabits(data.scheduledHabits || []);
+        let alive = true;
+        getDoc(doc(db, 'timelineProfiles', user.uid)).then((snap) => {
+            if (!alive) return;
+            if (snap.exists()) {
+                const d = snap.data();
+                setProfile(Object.fromEntries(Object.keys(DEFAULT_PROFILE).map((k) => [k, d[k] ?? DEFAULT_PROFILE[k]])));
+                setStored(d.scheduledHabits || []);
+                // An old-format profile is shown converted; it is only rewritten on Save.
+                if (d.sleepStart || (d.scheduledHabits || []).some((e) => !e.unitId)) setSaved(false);
+                if (d.sleepStart && d.sleepEnd) {
+                    const duration = (timeToMinutes(d.sleepEnd) - timeToMinutes(d.sleepStart) + 1440) % 1440;
+                    setLegacySleep({ startTime: d.sleepStart, duration: duration || 480 });
+                }
                 setHasProfile(true);
             }
             setLoading(false);
-        };
-
-        // Load habits
-        const q = query(collection(db, 'habits'), where('userId', '==', user.uid));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const habitsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setHabits(habitsData);
+        }).catch((err) => {
+            console.error(err);
+            if (alive) setLoading(false);
         });
-
-        loadProfile();
-        return unsubscribe;
+        return () => { alive = false; };
     }, [user]);
 
-    const saveProfile = async () => {
-        await setDoc(doc(db, 'timelineProfiles', user.uid), {
-            userId: user.uid,
-            sleepStart,
-            sleepEnd,
-            workStart,
-            workEnd,
-            commuteMinutes,
-            morningRoutineMinutes,
-            miscMinutes,
-            scheduledHabits
-        });
-        setHasProfile(true);
-    };
+    const units = useMemo(() => habitUnits(habits, folders), [habits, folders]);
+    const byId = useMemo(() => new Map(units.map((u) => [u.id, u])), [units]);
+    const sleepUnit = units.find((u) => u.members.some((m) => m.systemKey === 'sleep'));
+    const sleepId = sleepUnit?.id;
 
-    // Time conversion helpers
-    const timeToMinutes = (timeStr) => {
-        const [hours, minutes] = timeStr.split(':').map(Number);
-        return hours * 60 + minutes;
-    };
-
-    const minutesToTime = (mins) => {
-        const hours = Math.floor(mins / 60) % 24;
-        const minutes = mins % 60;
-        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-    };
-
-    // Calculate free time
-    const calculateFreeTime = () => {
-        const sleepMins = (timeToMinutes(sleepEnd) + 1440 - timeToMinutes(sleepStart)) % 1440;
-        const workMins = timeToMinutes(workEnd) - timeToMinutes(workStart);
-        const totalOccupied = sleepMins + workMins + commuteMinutes + morningRoutineMinutes + miscMinutes;
-        return Math.max(0, 1440 - totalOccupied);
-    };
-
-    // Drag and drop handlers
-    const handleDragStart = (habit) => {
-        setDraggedHabit(habit);
-    };
-
-    const handleDrop = (timeString) => {
-        if (!draggedHabit) return;
-
-        const duration = draggedHabit.timeRequired ?
-            parseInt(draggedHabit.timeRequired.split(' ')[0]) || 15 : 15;
-
-        const newScheduledHabit = {
-            habitId: draggedHabit.id,
-            habitName: draggedHabit.text,
-            startTime: timeString,
-            duration
-        };
-
-        setScheduledHabits([...scheduledHabits, newScheduledHabit]);
-        setDraggedHabit(null);
-    };
-
-    const removeScheduledHabit = (index) => {
-        setScheduledHabits(scheduledHabits.filter((_, i) => i !== index));
-    };
-
-    // Generate timeline blocks
-    const getTimelineBlocks = () => {
-        const blocks = [];
-
-        // Add sleep block(s) - split if crosses midnight
-        const sleepStartMins = timeToMinutes(sleepStart);
-        const sleepEndMins = timeToMinutes(sleepEnd);
-
-        if (sleepEndMins < sleepStartMins) {
-            // Sleep crosses midnight - split into two blocks
-            blocks.push({
-                type: 'sleep',
-                start: sleepStartMins,
-                end: 1440, // Until midnight
-                label: 'Sleep'
-            });
-            blocks.push({
-                type: 'sleep',
-                start: 0, // From midnight
-                end: sleepEndMins,
-                label: 'Sleep (cont.)'
-            });
-        } else {
-            // Sleep doesn't cross midnight
-            blocks.push({
-                type: 'sleep',
-                start: sleepStartMins,
-                end: sleepEndMins,
-                label: 'Sleep'
-            });
+    // The schedule in the current format, whatever shape it was stored in.
+    const schedule = useMemo(() => {
+        let list = normaliseSchedule(stored, unitIdByHabit(units)).filter((e) => byId.has(e.unitId));
+        list = list.map((e) => (e.legacy ? { ...e, duration: unitMinutes(byId.get(e.unitId)) } : e));
+        if (legacySleep && sleepId && !list.some((e) => e.unitId === sleepId)) {
+            list = [...list, { unitId: sleepId, ...legacySleep }];
         }
+        return list.map(({ unitId, startTime, duration }) => ({ unitId, startTime, duration }));
+    }, [stored, units, byId, legacySleep, sleepId]);
 
-        // Add work + commute
-        const workStartMins = timeToMinutes(workStart) - commuteMinutes / 2;
-        const workEndMins = timeToMinutes(workEnd) + commuteMinutes / 2;
-        blocks.push({
-            type: 'work',
-            start: workStartMins,
-            end: workEndMins,
-            label: 'Work + Commute'
-        });
+    const commit = (next) => { setStored(next); setLegacySleep(null); setSaved(false); };
+    const place = (unit, startTime) => commit([
+        ...schedule.filter((e) => e.unitId !== unit.id),
+        { unitId: unit.id, startTime, duration: unitMinutes(unit) },
+    ]);
+    const update = (unitId, data) => commit(schedule.map((e) => (e.unitId === unitId ? { ...e, ...data } : e)));
+    const remove = (unitId) => commit(schedule.filter((e) => e.unitId !== unitId));
+    const setField = (key, value) => { setProfile((p) => ({ ...p, [key]: value })); setSaved(false); };
 
-        // Add morning routine
-        const morningStart = timeToMinutes(sleepEnd);
-        blocks.push({
-            type: 'routine',
-            start: morningStart,
-            end: morningStart + morningRoutineMinutes,
-            label: 'Morning Routine'
-        });
-
-        // Add scheduled habits
-        scheduledHabits.forEach(sh => {
-            const start = timeToMinutes(sh.startTime);
-            blocks.push({
-                type: 'habit',
-                start,
-                end: start + sh.duration,
-                label: sh.habitName,
-                habitId: sh.habitId
-            });
-        });
-
-        return blocks;
+    const save = async () => {
+        await setDoc(doc(db, 'timelineProfiles', user.uid), { userId: user.uid, ...profile, scheduledHabits: schedule });
+        setStored(schedule);
+        setLegacySleep(null);
+        setHasProfile(true);
+        setSaved(true);
     };
 
     if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading timeline...</div>;
 
+    const free = freeMinutes(profile, schedule);
+
     if (!hasProfile) {
+        const numberField = (label, key) => (
+            <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', ...dim }}>{label}</label>
+                <input type="number" min="0" value={profile[key]} className="custom-input"
+                    onChange={(e) => setField(key, Math.max(0, Number(e.target.value) || 0))} />
+            </div>
+        );
         return (
-            <div className="container animate-fade-in" style={{ padding: '2rem', maxWidth: '600px', margin: '0 auto' }}>
+            <div className="container animate-fade-in" style={{ padding: '2rem 1.5rem', maxWidth: '600px', margin: '0 auto' }}>
                 <h2 style={{ marginBottom: '1.5rem' }}>Setup Your Daily Timeline</h2>
-                <div className="card" style={{ padding: '2rem' }}>
-                    <form onSubmit={(e) => { e.preventDefault(); saveProfile(); }} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-
+                <div className="card">
+                    <form onSubmit={(e) => { e.preventDefault(); save(); }} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
                         <div>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)' }}>
-                                🌙 Sleep Schedule
-                            </label>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', ...dim }}>💼 Work Schedule</label>
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                <input type="time" value={sleepStart} onChange={(e) => setSleepStart(e.target.value)}
-                                    className="custom-input" style={{ flex: 1 }} />
+                                <input type="time" value={profile.workStart} onChange={(e) => setField('workStart', e.target.value)} className="custom-input" style={{ flex: 1 }} />
                                 <span>to</span>
-                                <input type="time" value={sleepEnd} onChange={(e) => setSleepEnd(e.target.value)}
-                                    className="custom-input" style={{ flex: 1 }} />
+                                <input type="time" value={profile.workEnd} onChange={(e) => setField('workEnd', e.target.value)} className="custom-input" style={{ flex: 1 }} />
                             </div>
                         </div>
-
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)' }}>
-                                💼 Work Schedule
-                            </label>
-                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                                <input type="time" value={workStart} onChange={(e) => setWorkStart(e.target.value)}
-                                    className="custom-input" style={{ flex: 1 }} />
-                                <span>to</span>
-                                <input type="time" value={workEnd} onChange={(e) => setWorkEnd(e.target.value)}
-                                    className="custom-input" style={{ flex: 1 }} />
-                            </div>
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)' }}>
-                                🚗 Total Commute (minutes)
-                            </label>
-                            <input type="number" value={commuteMinutes} onChange={(e) => setCommuteMinutes(Number(e.target.value))}
-                                className="custom-input" />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)' }}>
-                                ☀️ Morning Routine (minutes)
-                            </label>
-                            <input type="number" value={morningRoutineMinutes} onChange={(e) => setMorningRoutineMinutes(Number(e.target.value))}
-                                className="custom-input" />
-                        </div>
-
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '0.5rem', color: 'var(--color-text-dim)' }}>
-                                ⏱️ Misc Time (minutes)
-                            </label>
-                            <input type="number" value={miscMinutes} onChange={(e) => setMiscMinutes(Number(e.target.value))}
-                                className="custom-input" />
-                        </div>
-
+                        {numberField('🚗 Total Commute (minutes)', 'commuteMinutes')}
+                        {numberField('☀️ Morning Routine (minutes)', 'morningRoutineMinutes')}
+                        {numberField('⏱️ Misc Time (minutes)', 'miscMinutes')}
+                        <p style={{ ...dim, fontSize: '0.85rem' }}>
+                            Sleep is not set here. It is your Sleep habit: place it on the timeline like any other habit.
+                        </p>
                         <div style={{ padding: '1rem', background: 'rgba(72, 219, 251, 0.1)', borderRadius: 'var(--radius-md)', border: '1px solid rgba(72, 219, 251, 0.3)' }}>
-                            <strong style={{ color: '#48dbfb' }}>Available Free Time:</strong> {Math.floor(calculateFreeTime() / 60)}h {calculateFreeTime() % 60}min
+                            <strong style={{ color: '#48dbfb' }}>Unplanned time:</strong> {fmt(free)}
                         </div>
-
-                        <button type="submit" className="btn btn-primary">Create Timeline</button>
+                        <button type="submit" className="btn btn-primary">Save Schedule</button>
                     </form>
                 </div>
             </div>
         );
     }
 
-    const timelineBlocks = getTimelineBlocks();
-    const unscheduledHabits = habits.filter(h => !scheduledHabits.some(sh => sh.habitId === h.id));
+    // Fixed blocks, then one block per scheduled unit (split when it passes midnight).
+    const blocks = [];
+    const add = (type, label, start, duration, unitId) => daySegments(start, duration).forEach((seg, i) =>
+        blocks.push({ ...seg, type, label: i ? `${label} (cont.)` : label, unitId, key: `${type}|${unitId || label}|${i}` }));
+    const workDuration = (timeToMinutes(profile.workEnd) - timeToMinutes(profile.workStart) + 1440) % 1440;
+    const workStart = timeToMinutes(profile.workStart) - profile.commuteMinutes / 2;
+    add('work', 'Work + Commute', workStart, workDuration + profile.commuteMinutes);
+    const sleepEntry = schedule.find((e) => e.unitId === sleepId);
+    if (profile.morningRoutineMinutes > 0) {
+        const routineStart = sleepEntry
+            ? timeToMinutes(sleepEntry.startTime) + sleepEntry.duration
+            : workStart - profile.morningRoutineMinutes;
+        add('routine', 'Morning Routine', routineStart, profile.morningRoutineMinutes);
+    }
+    schedule.forEach((e) => add(e.unitId === sleepId ? 'sleep' : 'unit', byId.get(e.unitId).name, timeToMinutes(e.startTime), e.duration, e.unitId));
+
+    // Things to avoid and consequences are not activities, so they are not offered for placing.
+    const schedulable = (u) => !u.members.every((m) => m.goalType === 'negative' || roleOf(m.labels) === 'outcome');
+    const unplaced = units.filter((u) => schedulable(u) && !schedule.some((e) => e.unitId === u.id));
+    const membersNote = (u) => (u.kind === 'folder' ? `any one of ${u.members.map((m) => m.text).join(', ')}` : null);
 
     return (
-        <div className="container animate-fade-in" style={{ padding: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                <h2>Daily Timeline</h2>
-                <button onClick={() => setHasProfile(false)} className="btn" style={{ background: 'rgba(255,255,255,0.1)' }}>
+        <div className="container animate-fade-in" style={{ padding: '2rem 1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+                <div>
+                    <h2>Daily Timeline</h2>
+                    <div style={{ ...dim, fontSize: '0.9rem', marginTop: '0.25rem' }}>Unplanned time: <strong style={{ color: 'white' }}>{fmt(free)}</strong></div>
+                </div>
+                <button onClick={() => setHasProfile(false)} className="btn" style={{ background: 'rgba(255,255,255,0.1)', color: 'white' }}>
                     Edit Schedule
                 </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '2rem' }}>
-                {/* Habits Sidebar */}
-                <div className="card" style={{ padding: '1.5rem', height: 'fit-content' }}>
-                    <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>Your Habits</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        {unscheduledHabits.map(habit => (
-                            <div
-                                key={habit.id}
-                                draggable
-                                onDragStart={() => handleDragStart(habit)}
-                                style={{
-                                    padding: '0.8rem',
-                                    background: 'rgba(255,255,255,0.05)',
-                                    borderRadius: 'var(--radius-md)',
-                                    cursor: 'grab',
-                                    border: '2px dashed rgba(255,255,255,0.2)'
-                                }}
-                            >
-                                <div style={{ fontWeight: 'bold', marginBottom: '0.2rem' }}>{habit.text}</div>
-                                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-dim)' }}>
-                                    {habit.timeRequired || '15 min'}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                    <div className="card">
+                        <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>To place</h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {unplaced.map((u) => (
+                                <form key={u.id} draggable onDragStart={() => setDragged(u)}
+                                    onSubmit={(e) => { e.preventDefault(); place(u, e.currentTarget.elements.at.value); }}
+                                    style={{ padding: '0.8rem', background: 'rgba(255,255,255,0.05)', borderRadius: 'var(--radius-md)', cursor: 'grab', border: '2px dashed rgba(255,255,255,0.2)' }}>
+                                    <div style={{ fontWeight: 'bold' }}>{u.name}</div>
+                                    <div style={{ fontSize: '0.8rem', ...dim, marginBottom: '0.5rem' }}>
+                                        {fmt(unitMinutes(u))}{membersNote(u) ? ` · ${membersNote(u)}` : ''}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                        <input type="time" name="at" defaultValue={u.id === sleepId ? '23:00' : '07:00'} className="custom-input" style={small} aria-label={`Start time for ${u.name}`} />
+                                        <button type="submit" className="btn" style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem', background: 'rgba(255,255,255,0.1)', color: 'white' }}>Place</button>
+                                    </div>
+                                </form>
+                            ))}
+                            {unplaced.length === 0 && (
+                                <div style={{ ...dim, fontSize: '0.9rem', textAlign: 'center', padding: '1rem' }}>Everything is placed.</div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="card">
+                        <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>Scheduled</h3>
+                        {schedule.length === 0 && <div style={{ ...dim, fontSize: '0.9rem' }}>Nothing yet. Drag an item onto the timeline, or use Place.</div>}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                            {[...schedule].sort((a, b) => a.startTime.localeCompare(b.startTime)).map((e) => (
+                                <div key={e.unitId}>
+                                    <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>{byId.get(e.unitId).name}</div>
+                                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <input type="time" value={e.startTime} className="custom-input" style={small} aria-label="Start time"
+                                            onChange={(ev) => ev.target.value && update(e.unitId, { startTime: ev.target.value })} />
+                                        <input type="number" min="5" max="1440" step="5" value={e.duration} className="custom-input" style={{ ...small, width: '5.5rem' }} aria-label="Length in minutes"
+                                            onChange={(ev) => update(e.unitId, { duration: clampDuration(ev.target.value) })} />
+                                        <span style={{ ...dim, fontSize: '0.8rem' }}>min</span>
+                                        <button type="button" onClick={() => remove(e.unitId)} aria-label={`Remove ${byId.get(e.unitId).name}`}
+                                            style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--color-text-dim)', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
-                        {unscheduledHabits.length === 0 && (
-                            <div style={{ color: 'var(--color-text-dim)', fontSize: '0.9rem', textAlign: 'center', padding: '1rem' }}>
-                                All habits scheduled!
-                            </div>
-                        )}
+                            ))}
+                        </div>
                     </div>
                 </div>
 
-                {/* Timeline Grid */}
-                <div className="card" style={{ padding: '1.5rem' }}>
+                <div className="card">
                     <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>24-Hour Timeline</h3>
                     <div style={{ position: 'relative', height: '1200px', background: 'rgba(0,0,0,0.2)', borderRadius: 'var(--radius-md)' }}>
-                        {/* Time Slots - 30 minute intervals */}
                         {Array.from({ length: 48 }, (_, i) => {
-                            const hour = Math.floor(i / 2);
-                            const minute = (i % 2) * 30;
-                            const timeString = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
-                            const isFullHour = minute === 0;
-
+                            const timeString = `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`;
                             return (
-                                <div
-                                    key={i}
-                                    onDragOver={(e) => e.preventDefault()}
-                                    onDrop={() => handleDrop(timeString)}
+                                <div key={i} onDragOver={(e) => e.preventDefault()}
+                                    onDrop={() => { if (dragged) place(dragged, timeString); setDragged(null); }}
                                     style={{
-                                        position: 'absolute',
-                                        top: `${(i / 48) * 100}%`,
-                                        left: 0,
-                                        right: 0,
-                                        height: '25px',
-                                        borderTop: isFullHour ? '1px solid rgba(255,255,255,0.2)' : '1px dashed rgba(255,255,255,0.05)',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        padding: '0 0.5rem'
-                                    }}
-                                >
-                                    {isFullHour && (
-                                        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-dim)', width: '50px' }}>
-                                            {timeString}
-                                        </span>
-                                    )}
+                                        position: 'absolute', top: `${(i / 48) * 100}%`, left: 0, right: 0, height: '25px',
+                                        borderTop: i % 2 ? '1px dashed rgba(255,255,255,0.05)' : '1px solid rgba(255,255,255,0.2)',
+                                        display: 'flex', alignItems: 'center', padding: '0 0.5rem',
+                                    }}>
+                                    {i % 2 === 0 && <span style={{ fontSize: '0.75rem', ...dim, width: '50px' }}>{timeString}</span>}
                                 </div>
                             );
                         })}
-
-                        {/* Timeline Blocks */}
-                        {timelineBlocks.map((block, idx) => {
-                            const top = (block.start / 1440) * 100;
-                            const height = ((block.end - block.start) / 1440) * 100;
-                            const colors = {
-                                sleep: { bg: 'rgba(72, 61, 139, 0.3)', border: '#9370DB' },
-                                work: { bg: 'rgba(255, 140, 0, 0.3)', border: '#FF8C00' },
-                                routine: { bg: 'rgba(46, 213, 115, 0.3)', border: '#2ed573' },
-                                habit: { bg: 'rgba(72, 219, 251, 0.3)', border: '#48dbfb' }
-                            };
-
-                            return (
-                                <div
-                                    key={idx}
-                                    style={{
-                                        position: 'absolute',
-                                        top: `${top}%`,
-                                        left: '60px',
-                                        right: '10px',
-                                        height: `${height}%`,
-                                        background: colors[block.type].bg,
-                                        border: `2px solid ${colors[block.type].border}`,
-                                        borderRadius: 'var(--radius-sm)',
-                                        padding: '0.5rem',
-                                        fontSize: '0.85rem',
-                                        fontWeight: 'bold',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between'
-                                    }}
-                                >
-                                    <span>{block.label}</span>
-                                    {block.type === 'habit' && (
-                                        <button
-                                            onClick={() => removeScheduledHabit(scheduledHabits.findIndex(sh => sh.habitId === block.habitId))}
-                                            style={{
-                                                background: 'rgba(255,255,255,0.2)',
-                                                border: 'none',
-                                                borderRadius: '50%',
-                                                width: '20px',
-                                                height: '20px',
-                                                cursor: 'pointer',
-                                                color: 'white',
-                                                fontSize: '0.8rem'
-                                            }}
-                                        >
-                                            ×
-                                        </button>
-                                    )}
-                                </div>
-                            );
-                        })}
+                        {blocks.map((b) => (
+                            <div key={b.key} title={b.label}
+                                style={{
+                                    position: 'absolute', top: `${(b.start / 1440) * 100}%`, height: `${((b.end - b.start) / 1440) * 100}%`,
+                                    left: '60px', right: '10px', overflow: 'hidden', pointerEvents: 'none',
+                                    background: COLORS[b.type].bg, border: `2px solid ${COLORS[b.type].border}`, borderRadius: 'var(--radius-sm)',
+                                    padding: '0 0.5rem', fontSize: '0.8rem', fontWeight: 'bold', display: 'flex', alignItems: 'center',
+                                }}>
+                                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.label}</span>
+                            </div>
+                        ))}
                     </div>
-
-                    <button onClick={saveProfile} className="btn btn-primary" style={{ marginTop: '1rem', width: '100%' }}>
-                        Save Timeline
+                    <button onClick={save} className="btn btn-primary" style={{ marginTop: '1rem', width: '100%' }}>
+                        {saved ? 'Saved ✓' : 'Save Timeline'}
                     </button>
                 </div>
             </div>

@@ -8,7 +8,9 @@ import {
     roleOf, labelsForRole,
 } from '../lib/cascade';
 import CascadeTree from './CascadeTree';
-import { useHabits } from '../lib/habitsContext';
+import { useHabits, useFolders } from '../lib/habitsContext';
+import { habitUnits, unitIdByHabit } from '../lib/folders';
+import { saveFolder } from '../lib/folderStore';
 
 // ONE SOURCE OF TRUTH: this page is a view over the `habits` collection.
 // It never stores its own copy of a habit. Role = a tag in habits.labels,
@@ -36,6 +38,7 @@ function Chip({ active, color, onClick, children }) {
 
 export default function System({ user }) {
     const habits = useHabits();
+    const folders = useFolders();
     const [fadeDays, setFadeDays] = useState(DEFAULT_FADE_DAYS);
     const [selectedId, setSelectedId] = useState(null);
     const [width, setWidth] = useState(0);
@@ -60,20 +63,40 @@ export default function System({ user }) {
         return () => ro.disconnect();
     }, []);
 
-    const nodes = useMemo(() => habits.map((h) => {
-        const order = ROOTS.findIndex((r) => r.id === h.systemKey);
-        return {
-            id: h.id, name: h.text, kind: roleOf(h.labels), labels: h.labels || [],
-            helpedBy: h.helpedBy || [], days: h.completedDates || [], perWeek: h.perWeek ?? 7,
-            numeric: h.goalType === 'numeric', order: order < 0 ? undefined : order,
-        };
-    }), [habits]);
+    // Nodes are UNITS: a habit, or a complementary folder drawn as one node.
+    const nodes = useMemo(() => {
+        const units = habitUnits(habits, folders);
+        const toUnit = unitIdByHabit(units);
+        const link = (ids, self) => [...new Set((ids || []).map((id) => toUnit.get(id) || id))].filter((id) => id !== self);
+        return units.map((u) => {
+            if (u.kind === 'folder') {
+                const roles = new Set(u.members.map((m) => roleOf(m.labels)));
+                const f = folders.get(u.name) || {};
+                return {
+                    id: u.id, name: u.name, kind: roles.size === 1 ? [...roles][0] : 'habit', labels: [],
+                    helpedBy: link(f.helpedBy, u.id), days: u.completedDates, perWeek: f.perWeek ?? 7, folder: u.name,
+                    lock: `Done when any one of ${u.members.map((m) => m.text).join(', ')} is done. Tick it on the Habits page.`,
+                };
+            }
+            const h = u.members[0];
+            const order = ROOTS.findIndex((r) => r.id === h.systemKey);
+            return {
+                id: h.id, name: h.text, kind: roleOf(h.labels), labels: h.labels || [],
+                helpedBy: link(h.helpedBy, h.id), days: u.completedDates, perWeek: h.perWeek ?? 7,
+                lock: h.goalType === 'numeric' ? 'Numeric habit: log the number on the Habits page.' : null,
+                order: order < 0 ? undefined : order,
+            };
+        });
+    }, [habits, folders]);
 
     const sys = useMemo(() => computeSystem(nodes, fadeDays, today), [nodes, fadeDays, today]);
     const layout = useMemo(() => (width > 0 && nodes.length ? layoutSystem(sys, width) : null), [sys, width, nodes.length]);
     const selected = selectedId ? sys.get(selectedId) : null;
 
-    const patch = (node, data) => updateDoc(doc(db, 'habits', node.id), data).catch(console.error);
+    // A folder node's links and cadence live on the folder doc; a habit's on the habit.
+    const patch = (node, data) => (node.folder
+        ? saveFolder(user.uid, node.folder, data)
+        : updateDoc(doc(db, 'habits', node.id), data).catch(console.error));
     const toggleDay = (node, dayKey) =>
         patch(node, { completedDates: node.days.includes(dayKey) ? arrayRemove(dayKey) : arrayUnion(dayKey) });
     const toggleHelper = (node, helperId) =>
@@ -147,8 +170,8 @@ export default function System({ user }) {
                     {selected.kind !== 'outcome' && (
                         <div style={{ marginBottom: '1rem' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
-                                {selected.numeric ? (
-                                    <span style={{ ...dim, fontSize: '0.85rem' }}>Numeric habit: log the number on the Habits page.</span>
+                                {selected.lock ? (
+                                    <span style={{ ...dim, fontSize: '0.85rem' }}>{selected.lock}</span>
                                 ) : (
                                     <button type="button" className={selected.loggedToday ? 'btn' : 'btn btn-primary'}
                                         onClick={() => toggleDay(selected, today)}
@@ -162,16 +185,16 @@ export default function System({ user }) {
                                     {CADENCES.map((n) => <option key={n} value={n}>{n === 7 ? 'Daily' : `${n}× a week`}</option>)}
                                 </select>
                             </div>
-                            <div style={sectionLabel}>Last 14 days{selected.numeric ? '' : ' (tap to fix a day)'}</div>
+                            <div style={sectionLabel}>Last 14 days{selected.lock ? '' : ' (tap to fix a day)'}</div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
                                 {lastDays(14, today).map((d) => {
                                     const on = selected.days.includes(d);
                                     return (
-                                        <button key={d} type="button" disabled={selected.numeric} title={d} aria-pressed={on}
+                                        <button key={d} type="button" disabled={!!selected.lock} title={d} aria-pressed={on}
                                             onClick={() => toggleDay(selected, d)}
                                             style={{
                                                 height: '34px', borderRadius: '4px', fontSize: '0.8rem',
-                                                cursor: selected.numeric ? 'default' : 'pointer',
+                                                cursor: selected.lock ? 'default' : 'pointer',
                                                 border: d === today ? '1px solid rgba(255,255,255,0.5)' : '1px solid transparent',
                                                 background: on ? KINDS[selected.kind].color : 'rgba(255,255,255,0.05)',
                                                 color: on ? 'white' : 'var(--color-text-dim)',
@@ -196,9 +219,9 @@ export default function System({ user }) {
                         </div>
                     )}
 
-                    <div style={sectionLabel}>Role (saved as a tag on the habit)</div>
+                    {!selected.folder && <div style={sectionLabel}>Role (saved as a tag on the habit)</div>}
                     <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        {Object.entries(KINDS).map(([k, def]) => (
+                        {!selected.folder && Object.entries(KINDS).map(([k, def]) => (
                             <Chip key={k} active={selected.kind === k} color={def.color}
                                 onClick={() => setRole(selected, k)}>{def.label}</Chip>
                         ))}

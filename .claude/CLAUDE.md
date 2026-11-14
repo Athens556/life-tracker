@@ -8,6 +8,7 @@
 - One definition per constant or formula. Defaults live in `ROOTS` (src/lib/cascade.js); the fade formula lives in src/lib/resistance.js. Import, do not copy.
 - Day keys are local dates from `localDayKey()` in resistance.js. Never `toISOString()` for a day.
 - One live listener on `habits`: `HabitsProvider` (mounted in App.jsx). Pages read it with `useHabits()` from src/lib/habitsContext.js. Never add another `onSnapshot` on `habits`.
+- Folders: a folder's type (`mandatory` / `complementary`) and any other folder attribute live in `habitFolders` (writer: `saveFolder`, reader: `useFolders()`); habits only carry the folder name. Pages count and draw UNITS from `habitUnits(habits, folders)` in src/lib/folders.js, never raw habits.
 - One writer for resistance taps: src/lib/cravings.js (`logHabitResistance`, `logCraving`). Labels for habit acts come from src/lib/habitActs.js. A resistance entry is an event-log row: its `label` is a snapshot, `habitId` is the link to the habit.
 - Think in OOP terms: Sleep, Exercise and Diet are Habits with a role, not a separate type.
 
