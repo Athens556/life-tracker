@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, query, where, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { localDayKey, normalizeAct } from '../lib/resistance';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { localDayKey } from '../lib/resistance';
+import { logCraving } from '../lib/cravings';
 
-// One tap, zero friction: writes a craving doc plus a category-N "craving"
-// entry so it feeds the index. No confirmation, no navigation, no text.
+// One tap, zero friction: logCraving (lib/cravings.js) writes a craving doc plus
+// a category-N "craving" entry so it feeds the index. No confirmation, no navigation, no text.
 export default function CravingButton({ user, compact = false }) {
     const [todayCount, setTodayCount] = useState(0);
     const [pulse, setPulse] = useState(false);
@@ -23,23 +24,7 @@ export default function CravingButton({ user, compact = false }) {
     const tap = () => {
         setPulse(true);
         setTimeout(() => setPulse(false), 350);
-        const dayKey = localDayKey();
-        // Fire-and-forget: acknowledgement must not wait on the network.
-        addDoc(collection(db, 'cravings'), {
-            userId: user.uid,
-            createdAt: serverTimestamp(),
-            dayKey,
-        }).catch(console.error);
-        addDoc(collection(db, 'resistanceEntries'), {
-            userId: user.uid,
-            cat: 'N',
-            label: 'craving',
-            act: normalizeAct('craving'),
-            mag: null,
-            newContext: false,
-            dayKey,
-            createdAt: serverTimestamp(),
-        }).catch(console.error);
+        logCraving(user.uid);
     };
 
     return (

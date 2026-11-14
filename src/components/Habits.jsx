@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { db } from '../lib/firebase';
-import { collection, addDoc, query, where, onSnapshot, deleteDoc, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { collection, addDoc, deleteDoc, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { useHabits } from '../lib/habitsContext';
 import HabitCalendar from './HabitCalendar';
+import { localDayKey } from '../lib/resistance';
 import { analyzeHabits } from '../lib/gemini.js';
 
 export default function Habits({ user }) {
-    const [habits, setHabits] = useState([]);
+    const habits = useHabits();
     const [collapsedFolders, setCollapsedFolders] = useState({}); // { "Folder Name": true/false }
     const [aiResponse, setAiResponse] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -29,18 +31,6 @@ export default function Habits({ user }) {
 
     // Logging State (for numeric inputs)
     const [logValues, setLogValues] = useState({}); // { habitId: value }
-
-    useEffect(() => {
-        if (!user) return;
-
-        const q = query(collection(db, 'habits'), where('userId', '==', user.uid));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const habitsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setHabits(habitsData);
-        });
-
-        return unsubscribe;
-    }, [user]);
 
     // Tag Management Functions
     const addLabelTag = (e) => {
@@ -102,7 +92,7 @@ export default function Habits({ user }) {
     };
 
     const toggleHabit = async (habit, dateStr) => {
-        const targetDate = dateStr || new Date().toISOString().split('T')[0];
+        const targetDate = dateStr || localDayKey();
         const habitRef = doc(db, 'habits', habit.id);
 
         // Boolean Logic (Simple + Negative: a checked day on a negative habit means "avoided it")
@@ -119,7 +109,7 @@ export default function Habits({ user }) {
     const logNumericValue = async (habit, value) => {
         if (value === '' || isNaN(value)) return;
         const numValue = Number(value);
-        const today = new Date().toISOString().split('T')[0];
+        const today = localDayKey();
         const habitRef = doc(db, 'habits', habit.id);
 
         // Update logs
@@ -153,7 +143,7 @@ export default function Habits({ user }) {
 
     const getMonthlyStats = (completedDates) => {
         if (!completedDates) return 0;
-        const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const currentMonth = localDayKey().slice(0, 7); // YYYY-MM
         return completedDates.filter(d => d.startsWith(currentMonth)).length;
     };
 
@@ -166,7 +156,7 @@ export default function Habits({ user }) {
     }, {});
 
     const sortedCategories = Object.keys(groupedHabits).sort();
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDayKey();
 
     // existing categories for suggestions
     const existingCategories = [...new Set(habits.map(h => h.category || 'Uncategorized'))].sort();

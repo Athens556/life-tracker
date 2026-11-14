@@ -142,9 +142,12 @@ export default function Resistance({ user }) {
                 return { id: d.id, ...data, createdAt: data.createdAt?.toMillis?.() ?? Date.now() };
             }));
         });
-        const unsubS = onSnapshot(doc(db, 'resistanceSettings', user.uid), (snap) => {
-            if (snap.exists()) setFadeDays(clampFadeDays(snap.data().fadeDays));
-        });
+        // A query, not a doc read: the rules deny reading a settings doc that does
+        // not exist yet, and that rejected listener crashed Firestore on unmount.
+        const qS = query(collection(db, 'resistanceSettings'), where('userId', '==', user.uid));
+        const unsubS = onSnapshot(qS, (snap) => {
+            if (snap.docs.length) setFadeDays(clampFadeDays(snap.docs[0].data().fadeDays));
+        }, console.error);
         return () => { unsubE(); unsubC(); unsubS(); };
     }, [user]);
 
